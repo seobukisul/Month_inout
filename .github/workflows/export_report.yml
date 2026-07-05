@@ -1,0 +1,30 @@
+name: Monthly Export Report
+
+on:
+  schedule:
+    # 한국 시간 기준 매월 1일 오전 11시 30분 실행 (KST = UTC + 9시간)
+    # 11:30 KST = 02:30 UTC 이므로 아래와 같이 설정
+    - cron: '30 2 1 * *'
+  # 수동으로도 실행해 볼 수 있도록 추가
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pymupdf openai matplotlib
+      
+      - name: Run script
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+        run: python main.py
