@@ -29,6 +29,8 @@ def get_latest_report():
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
+        os.makedirs("file", exist_ok=True)
+        
         articles = soup.select('table tbody tr')
         for article in articles:
             title_element = article.select_one('td.txtL a')
@@ -52,17 +54,17 @@ def get_latest_report():
                     if link.text and '.pdf' in link.text.lower():
                         pdf_url = "https://www.motie.go.kr" + link['href']
                         pdf_data = requests.get(pdf_url, verify=False).content
-                        with open("report.pdf", "wb") as f:
+                        with open("file/report.pdf", "wb") as f:
                             f.write(pdf_data)
-                        return "report.pdf", title
+                        return "file/report.pdf", title
                 
                 pdf_link = post_soup.find('a', href=re.compile(r'\.pdf$'))
                 if pdf_link:
                     pdf_url = "https://www.motie.go.kr" + pdf_link['href']
                     pdf_data = requests.get(pdf_url, verify=False).content
-                    with open("report.pdf", "wb") as f:
+                    with open("file/report.pdf", "wb") as f:
                         f.write(pdf_data)
-                    return "report.pdf", title
+                    return "file/report.pdf", title
     except Exception as e:
         print(f"Scraping error: {e}")
         
