@@ -16,8 +16,10 @@ def get_latest_report():
     now = datetime.datetime.now()
     # 산업부는 매월 1일에 '전월' 데이터의 수출입 동향을 발표합니다. (예: 7월 1일에 '6월 수출입 동향' 발표)
     target_month = now.month - 1
+    target_year = now.year
     if target_month == 0:
         target_month = 12
+        target_year -= 1
         
     url = "https://www.motie.go.kr/kor/article/ATCL3f49a5a8c?searchCondition=1&searchKeyword=수출입+동향"
     
@@ -33,7 +35,12 @@ def get_latest_report():
             
             title = title_element.text.strip()
             
-            if f"{target_month}월" in title and "수출입" in title and "동향" in title:
+            # 올해(또는 작년 12월), 타겟 월, 수출입, 동향을 포함하되 정보통신은 제외
+            if (f"{target_year}년" in title and 
+                f"{target_month}월" in title and 
+                "수출입" in title and 
+                "동향" in title and 
+                "정보통신" not in title):
                 post_url = "https://www.motie.go.kr" + title_element['href']
                 
                 post_response = requests.get(post_url, verify=False)
