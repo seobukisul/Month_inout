@@ -14,8 +14,11 @@ from email.mime.image import MIMEImage
 
 def get_latest_report():
     now = datetime.datetime.now()
-    target_month = now.month
-    
+    # 산업부는 매월 1일에 '전월' 데이터의 수출입 동향을 발표합니다. (예: 7월 1일에 '6월 수출입 동향' 발표)
+    target_month = now.month - 1
+    if target_month == 0:
+        target_month = 12
+        
     url = "https://www.motie.go.kr/kor/article/ATCL3f49a5a8c?searchCondition=1&searchKeyword=수출입+동향"
     
     try:
