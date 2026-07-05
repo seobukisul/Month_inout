@@ -11,6 +11,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+from email.mime.application import MIMEApplication
 
 def get_latest_report():
     now = datetime.datetime.now()
@@ -121,7 +122,7 @@ def create_graph(data_dict):
     plt.savefig('export_graph.png')
     plt.close()
 
-def send_email(subject, summary):
+def send_email(subject, summary, pdf_file=None):
     sender = os.environ.get("EMAIL_SENDER")
     password = os.environ.get("EMAIL_PASSWORD")
     receiver = os.environ.get("EMAIL_RECEIVER")
@@ -145,6 +146,12 @@ def send_email(subject, summary):
             img_data = f.read()
         image = MIMEImage(img_data, name="export_graph.png")
         msg.attach(image)
+        
+    if pdf_file and os.path.exists(pdf_file):
+        with open(pdf_file, 'rb') as f:
+            pdf_attachment = MIMEApplication(f.read(), _subtype="pdf")
+            pdf_attachment.add_header('Content-Disposition', 'attachment', filename=pdf_file)
+            msg.attach(pdf_attachment)
     
     server = smtplib.SMTP(smtp_server, smtp_port)
     server.starttls()
@@ -161,7 +168,7 @@ if __name__ == "__main__":
         print("Generated summary and extracted data.")
         create_graph(data)
         print("Generated graph.")
-        send_email(post_title, summary)
+        send_email(post_title, summary, pdf_file)
         print("Process completed and email sent.")
     else:
         print("Could not find the report for this month.")
