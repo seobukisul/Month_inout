@@ -7,7 +7,6 @@ const GOOGLE_DRIVE_FOLDER_ID = ""; // 옵션: 구글 드라이브 특정 폴더 
 
 function runMonthlyReport() {
   var now = new Date();
-  // 매월 1일에 전월 데이터 발표 (예: 7월 1일 -> 6월 수출입 동향)
   var targetMonth = now.getMonth(); // getMonth()는 0-11 이므로 7월에 실행하면 6이 나옴 (즉, 6월)
   var targetYear = now.getFullYear();
   if (targetMonth === 0) {
@@ -30,11 +29,23 @@ function runMonthlyReport() {
   
   var html = response.getContentText("UTF-8");
   
+  // 쿠키 수집
+  var cookies = response.getHeaders()["Set-Cookie"] || response.getHeaders()["set-cookie"] || "";
+  var cookieHeader = "";
+  if (cookies) {
+    if (typeof cookies === "string") {
+      cookieHeader = cookies.split(";")[0];
+    } else if (Array.isArray(cookies)) {
+      cookieHeader = cookies.map(function(c) { return c.split(";")[0]; }).join("; ");
+    }
+  }
+  
   // HTML 파싱 (Regex 사용)
   var trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
   var match;
   var targetRowHtml = null;
   var postTitle = null;
+  var articleId = null;
   
   while ((match = trPattern.exec(html)) !== null) {
     var rowHtml = match[1];
@@ -53,40 +64,64 @@ function runMonthlyReport() {
             title.indexOf("정보통신") === -1) {
           targetRowHtml = rowHtml;
           postTitle = title;
+          
+          // articleSeq ID 추출
+          var idMatch = rowHtml.match(/article\.view\('(\d+)'\)/);
+          if (idMatch) {
+            articleId = idMatch[1];
+          }
           break;
         }
       }
     }
   }
   
-  if (!targetRowHtml) {
+  if (!articleId) {
     Logger.log("이번 달 게시물을 찾지 못했습니다.");
     return;
   }
   
-  Logger.log("게시물 발견: " + postTitle);
+  Logger.log("게시물 발견: " + postTitle + " (ID: " + articleId + ")");
   
-  // 첨부파일 링크 추출
+  // 2. 상세 페이지 방문 (세션 등록을 위해 필수!)
+  var detailUrl = baseUrl + "/kor/article/ATCL3f49a5a8c?articleSeq=" + articleId;
+  Logger.log("상세 페이지 방문 중: " + detailUrl);
+  
+  var detailResponse = UrlFetchApp.fetch(detailUrl, {
+    muteHttpExceptions: true,
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      "Cookie": cookieHeader,
+      "Referer": searchUrl
+    }
+  });
+  
+  var detailHtml = detailResponse.getContentText("UTF-8");
+  
+  // 상세 페이지 쿠키 추가 수집
+  var detailCookies = detailResponse.getHeaders()["Set-Cookie"] || detailResponse.getHeaders()["set-cookie"] || "";
+  if (detailCookies) {
+    var detailCookieStr = "";
+    if (typeof detailCookies === "string") {
+      detailCookieStr = detailCookies.split(";")[0];
+    } else if (Array.isArray(detailCookies)) {
+      detailCookieStr = detailCookies.map(function(c) { return c.split(";")[0]; }).join("; ");
+    }
+    if (detailCookieStr) {
+      cookieHeader = cookieHeader ? cookieHeader + "; " + detailCookieStr : detailCookieStr;
+    }
+  }
+  
+  // 상세 페이지에서 첨부파일 링크 추출
   var attachPattern = /\/attach\/down\/[a-zA-Z0-9]+\/[a-zA-Z0-9]+/g;
-  var attachMatches = targetRowHtml.match(attachPattern);
+  var attachMatches = detailHtml.match(attachPattern);
   if (!attachMatches) {
-    Logger.log("첨부파일 링크를 찾지 못했습니다.");
+    Logger.log("상세 페이지에서 첨부파일 링크를 찾지 못했습니다.");
     return;
   }
   
   var fileUrl = baseUrl + attachMatches[0];
   Logger.log("PDF 다운로드 시작: " + fileUrl);
-  
-  // 세션 쿠키 유지를 위해 첫 검색 시 받은 쿠키 헤더 파싱
-  var cookies = response.getHeaders()["Set-Cookie"] || response.getHeaders()["set-cookie"] || "";
-  var cookieHeader = "";
-  if (cookies) {
-    if (typeof cookies === "string") {
-      cookieHeader = cookies.split(";")[0];
-    } else if (Array.isArray(cookies)) {
-      cookieHeader = cookies.map(function(c) { return c.split(";")[0]; }).join("; ");
-    }
-  }
   
   // PDF 다운로드
   var pdfResponse = UrlFetchApp.fetch(fileUrl, {
@@ -94,7 +129,7 @@ function runMonthlyReport() {
     headers: {
       "User-Agent": "Mozilla/5.0",
       "Cookie": cookieHeader,
-      "Referer": searchUrl
+      "Referer": detailUrl
     }
   });
   
@@ -104,31 +139,30 @@ function runMonthlyReport() {
   // PDF 확인 (%PDF로 시작하는지)
   var isPdf = (content[0] === 0x25 && content[1] === 0x50 && content[2] === 0x44 && content[3] === 0x46); // %PDF
   if (!isPdf) {
-    Logger.log("다운로드된 파일이 PDF 형식이 아닙니다.");
+    Logger.log("다운로드된 파일이 PDF 형식이 아닙니다. 응답 크기: " + content.length + " bytes");
     return;
   }
   
-  // 2. 구글 드라이브에 PDF 저장
+  // 3. 구글 드라이브에 PDF 저장
   var folder = GOOGLE_DRIVE_FOLDER_ID ? DriveApp.getFolderById(GOOGLE_DRIVE_FOLDER_ID) : DriveApp.getRootFolder();
   var filename = postTitle + ".pdf";
   var file = folder.createFile(pdfBlob.setName(filename));
   Logger.log("구글 드라이브 저장 완료: " + file.getUrl());
   
-  // 3. PDF에서 텍스트 추출 (Google Docs OCR 기능을 통해 텍스트 자동 변환)
+  // 4. PDF에서 텍스트 추출 (Google Docs OCR 기능을 통해 텍스트 자동 변환)
   var text = extractTextFromPdf(file.getId());
   
-  // 4. Gemini API 호출
+  // 5. Gemini API 호출
   var geminiResult = callGemini(text);
   
-  // 5. QuickChart API를 통해 그래프 이미지 생성
+  // 6. QuickChart API를 통해 그래프 이미지 생성
   var chartBlob = generateChartImage(geminiResult.data);
   
-  // 6. 이메일 발송 (GmailApp 사용)
+  // 7. 이메일 발송 (GmailApp 사용)
   sendEmail(postTitle, geminiResult.summary, file, chartBlob);
 }
 
 function extractTextFromPdf(fileId) {
-  // Advanced Drive Service가 활성화되어 있어야 동작합니다. (방법은 가이드 참조)
   var file = Drive.Files.copy({title: "temp_doc"}, fileId, {convert: true});
   var doc = DocumentApp.openById(file.id);
   var text = doc.getBody().getText();
@@ -181,7 +215,6 @@ function generateChartImage(chartData) {
     return val >= 0 ? "'#ff6b6b'" : "'#4dabf7'";
   });
   
-  // QuickChart.io API 파라미터 정의 (차트 생성 서비스)
   var chartConfig = "{" +
     "type: 'bar'," +
     "data: {" +
