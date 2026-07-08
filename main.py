@@ -42,15 +42,33 @@ def fetch_url(session, url):
     if not proxy_url:
         return session.get(url, timeout=30)
 
+    # 세션 쿠키를 스트링으로 포맷
+    cookie_str = "; ".join([f"{k}={v}" for k, v in session.cookies.items()])
+
     from urllib.parse import quote
-    encoded_url = quote(url)
-    target = f"{proxy_url}?url={encoded_url}"
+    target = f"{proxy_url}?url={quote(url)}"
+    if cookie_str:
+        target += f"&cookie={quote(cookie_str)}"
+
     print(f"  -> [Proxy] Fetching via Google Apps Script: {url}")
     try:
         resp = requests.get(target, timeout=60)
-        # 만약 프록시에서 JSON 형식(바이너리 PDF)으로 응답한 경우
         data = resp.json()
-        if isinstance(data, dict) and data.get("isBinary"):
+        
+        if "error" in data:
+            print(f"     [Proxy Error] {data['error']}")
+
+        # 프록시에서 반환된 Set-Cookie 헤더를 세션에 저장
+        set_cookie = data.get("setCookie")
+        if set_cookie:
+            for cookie_part in set_cookie.split(','):
+                cookie_clean = cookie_part.split(';')[0].strip()
+                if '=' in cookie_clean:
+                    parts = cookie_clean.split('=', 1)
+                    session.cookies.set(parts[0], parts[1])
+
+        # 프록시에서 JSON 형식(바이너리 PDF)으로 응답한 경우
+        if data.get("isBinary"):
             import base64
             class MockResponse:
                 def __init__(self, content, content_type):
@@ -64,16 +82,26 @@ def fetch_url(session, url):
                 def raise_for_status(self):
                     pass
             return MockResponse(base64.b64decode(data["content"]), data.get("contentType", "application/pdf"))
-    except Exception:
-        pass
+        else:
+            class MockResponse:
+                def __init__(self, text):
+                    self.text = text
+                    self.content = text.encode("utf-8")
+                    self.status_code = 200
+                    self.headers = {"Content-Type": "text/html"}
+                def raise_for_status(self):
+                    pass
+            return MockResponse(data.get("content", ""))
+    except Exception as e:
+        print(f"     [Proxy JSON Error] {e}")
 
-    # HTML 텍스트 응답인 경우
+    # 예외 발생 시 일반 텍스트 응답으로 대체
     class MockResponse:
         def __init__(self, text):
             self.text = text
             self.content = text.encode("utf-8")
             self.status_code = 200
-            self.headers = {"Content-Type": "text/html"}
+            self.headers = {}
         def raise_for_status(self):
             pass
     return MockResponse(resp.text)
