@@ -221,7 +221,8 @@ function extractTextFromPdf(fileId) {
 }
 
 function callGemini(text) {
-  var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY;
+  // 최신 모델인 gemini-2.5-flash로 API 엔드포인트 변경
+  var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY;
   
   var prompt = "다음은 산업통상자원부의 수출입 동향 PDF 텍스트입니다.\n" +
                "1. 주요 산업별(반도체, 자동차, 철강, 석유화학, 바이오헬스 등) 수출입 동향을 600자 이내로 핵심만 요약해줘.\n" +
@@ -252,7 +253,7 @@ function callGemini(text) {
   var response = UrlFetchApp.fetch(url, options);
   var json = JSON.parse(response.getContentText());
   
-  // 제미나이 응답 에러 핸들링 추가
+  // 제미나이 응답 에러 핸들링
   if (json.error) {
     throw new Error("Gemini API Error: " + json.error.message + " (Code: " + json.error.code + ")");
   }
