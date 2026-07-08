@@ -3,3 +3,7 @@ __pycache__/
 *.png
 .env
 logs/
+
+# Allow committing PDFs in the file/ directory
+!file/*.pdf
+

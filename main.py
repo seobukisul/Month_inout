@@ -34,6 +34,50 @@ HEADERS = {
     'Connection': 'keep-alive',
 }
 
+EXCLUDE_KEYWORDS = ['그래프', '캡처', '참고', '별첨', '붙임', '보도참고']
+
+
+def fetch_url(session, url):
+    proxy_url = os.environ.get("PROXY_URL")
+    if not proxy_url:
+        return session.get(url, timeout=30)
+
+    from urllib.parse import quote
+    encoded_url = quote(url)
+    target = f"{proxy_url}?url={encoded_url}"
+    print(f"  -> [Proxy] Fetching via Google Apps Script: {url}")
+    try:
+        resp = requests.get(target, timeout=60)
+        # 만약 프록시에서 JSON 형식(바이너리 PDF)으로 응답한 경우
+        data = resp.json()
+        if isinstance(data, dict) and data.get("isBinary"):
+            import base64
+            class MockResponse:
+                def __init__(self, content, content_type):
+                    self.content = content
+                    self.status_code = 200
+                    filename = url.split('/')[-1] or "report.pdf"
+                    self.headers = {
+                        "Content-Type": content_type,
+                        "Content-Disposition": f"attachment; filename=\"{filename}\""
+                    }
+                def raise_for_status(self):
+                    pass
+            return MockResponse(base64.b64decode(data["content"]), data.get("contentType", "application/pdf"))
+    except Exception:
+        pass
+
+    # HTML 텍스트 응답인 경우
+    class MockResponse:
+        def __init__(self, text):
+            self.text = text
+            self.content = text.encode("utf-8")
+            self.status_code = 200
+            self.headers = {"Content-Type": "text/html"}
+        def raise_for_status(self):
+            pass
+    return MockResponse(resp.text)
+
 
 def get_latest_report():
     now = datetime.datetime.now()
@@ -50,20 +94,20 @@ def get_latest_report():
     session.headers.update(HEADERS)
     session.verify = False
 
-    # 검색 결과 페이지: 제목과 첨부파일이 같은 tr에 존재
+    # 검색 결과 페이지 - 제목과 첨부파일이 같은 tr에 존재
     search_url = (
         f"{BASE_URL}/kor/article/ATCL3f49a5a8c"
         f"?searchCondition=1&searchKeyword=%EC%88%98%EC%B6%9C%EC%9E%85+%EB%8F%99%ED%96%A5"
     )
     try:
-        resp = session.get(search_url, timeout=20)
+        resp = fetch_url(session, search_url)
         soup = BeautifulSoup(resp.text, 'html.parser')
         print("[2] 검색 페이지 접속 성공")
     except Exception as e:
         print(f"[!] 검색 페이지 접속 실패: {e}")
         return find_cached_pdf(target_year, target_month)
 
-    # 각 행에서 제목 확인 후 같은 행의 첨부파일 링크 추출
+    # 검색 결과 각 행에서 제목과 첨부파일 동시 추출
     rows = soup.select('table#mytable tbody tr')
     target_row = None
     post_title = None
@@ -83,7 +127,7 @@ def get_latest_report():
             break
 
     if not target_row:
-        print("[!] 게시물 없음. 캐시된 PDF 사용합니다.")
+        print("[!] 게시물을 찾지 못했습니다. 캐시된 PDF를 사용합니다.")
         return find_cached_pdf(target_year, target_month)
 
     # 같은 행에서 첨부파일 링크 추출
@@ -91,7 +135,7 @@ def get_latest_report():
     print(f"[4] 첨부파일 {len(attach_links)}개 발견")
 
     if not attach_links:
-        print("[!] 첨부파일 없음. 캐시된 PDF 사용합니다.")
+        print("[!] 같은 행에 첨부파일 없음. 캐시된 PDF를 사용합니다.")
         return find_cached_pdf(target_year, target_month)
 
     # 첨부파일 다운로드 시도
@@ -101,7 +145,7 @@ def get_latest_report():
     for i, link in enumerate(attach_links):
         file_url = BASE_URL + link['href']
         try:
-            r3 = session.get(file_url, timeout=30)
+            r3 = fetch_url(session, file_url)
             cd = r3.headers.get('Content-Disposition', '')
             fname_match = re.search(r"filename\*?=['\"]?(?:UTF-8'')?([^'\";\n]+)", cd)
             filename = unquote(fname_match.group(1).strip()) if fname_match else f"attach_{i+1}.bin"
@@ -115,10 +159,10 @@ def get_latest_report():
             print(f"  [{i+1}] 다운로드 실패: {e}")
 
     if not pdf_candidates:
-        print("[!] PDF 다운로드 실패. 캐시된 PDF 사용합니다.")
+        print("[!] PDF 다운로드 실패. 캐시된 PDF를 사용합니다.")
         return find_cached_pdf(target_year, target_month)
 
-    # 가장 큰 PDF 선택
+    # 가장 큰 PDF 선택 (한 행에 하나만 있으므로 대부분 첫 번째)
     pdf_candidates.sort(key=lambda x: x[2], reverse=True)
     filename, content, size = pdf_candidates[0]
     if not filename.lower().endswith('.pdf'):
