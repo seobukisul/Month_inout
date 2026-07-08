@@ -251,6 +251,15 @@ function callGemini(text) {
   
   var response = UrlFetchApp.fetch(url, options);
   var json = JSON.parse(response.getContentText());
+  
+  // 제미나이 응답 에러 핸들링 추가
+  if (json.error) {
+    throw new Error("Gemini API Error: " + json.error.message + " (Code: " + json.error.code + ")");
+  }
+  if (!json.candidates || json.candidates.length === 0) {
+    throw new Error("Gemini API returned no candidates. Raw response: " + response.getContentText());
+  }
+  
   var resultText = json.candidates[0].content.parts[0].text;
   return JSON.parse(resultText);
 }
