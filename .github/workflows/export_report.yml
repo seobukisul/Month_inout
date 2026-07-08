@@ -2,10 +2,8 @@ name: Monthly Export Report
 
 on:
   schedule:
-    # 한국 시간 기준 매월 1일 오전 11시 30분 실행 (KST = UTC + 9시간)
-    # 11:30 KST = 02:30 UTC 이므로 아래와 같이 설정
+    # 한국 시간 기준 매월 1일 오전 11시 30분 (KST = UTC+9, 11:30 KST = 02:30 UTC)
     - cron: '30 2 1 * *'
-  # 수동으로도 실행해 볼 수 있도록 추가
   workflow_dispatch:
 
 jobs:
@@ -19,11 +17,8 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Python dependencies
-        run: pip install playwright pymupdf google-genai matplotlib
-
-      - name: Install Playwright browser + system deps
-        run: playwright install --with-deps chromium
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pymupdf google-genai matplotlib python-dotenv
 
       - name: Run script
         env:
