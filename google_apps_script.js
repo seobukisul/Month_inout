@@ -16,8 +16,8 @@ function runMonthlyReport() {
   
   Logger.log("대상: " + targetYear + "년 " + targetMonth + "월 수출입 동향");
   
-  // 1. 게시판 검색
-  var baseUrl = "https://www.motie.go.kr";
+  // 1. 게시판 검색 (motir.go.kr 이 공식 도메인으로 리다이렉트되므로 motir 사용)
+  var baseUrl = "https://www.motir.go.kr";
   var searchUrl = baseUrl + "/kor/article/ATCL3f49a5a8c?searchCondition=1&searchKeyword=" + encodeURIComponent("수출입 동향");
   
   var response = UrlFetchApp.fetch(searchUrl, {
@@ -73,8 +73,8 @@ function runMonthlyReport() {
   
   Logger.log("게시물 발견: " + postTitle + " (ID: " + articleId + ")");
   
-  // 2. 상세 페이지 방문 (세션 등록을 위해 필수!)
-  var detailUrl = baseUrl + "/kor/article/ATCL3f49a5a8c?articleSeq=" + articleId;
+  // 2. 상세 페이지 방문 (진짜 상세페이지 URL: /kor/article/ATCL3f49a5a8c/ID/view)
+  var detailUrl = baseUrl + "/kor/article/ATCL3f49a5a8c/" + articleId + "/view";
   Logger.log("상세 페이지 방문 중: " + detailUrl);
   
   var detailResponse = UrlFetchApp.fetch(detailUrl, {
@@ -94,23 +94,37 @@ function runMonthlyReport() {
     cookieHeader = cookieHeader ? cookieHeader + "; " + detailCookie : detailCookie;
   }
   
-  // [중요!] 상세 페이지 하단의 전체 게시글 목록(mytable)을 제거하여 
-  // 현재 게시글의 진짜 첨부파일만 남깁니다.
-  var cleanHtml = detailHtml;
-  cleanHtml = cleanHtml.replace(/<table[^>]*id="mytable"[\s\S]*?<\/table>/gi, "");
-  cleanHtml = cleanHtml.replace(/<div[^>]*class="[^"]*board-list[^"]*"[\s\S]*?<\/div>/gi, "");
-  cleanHtml = cleanHtml.replace(/<div[^>]*class="[^"]*mo_table[^"]*"[\s\S]*?<\/div>/gi, "");
+  // 하단 기사목록 테이블(mytable)을 제거하여 본문 첨부파일만 남김
+  var cleanHtml = detailHtml.replace(/<table[^>]*id="mytable"[\s\S]*?<\/table>/gi, "");
   
-  // 상세 페이지 본문의 첨부파일 링크 추출
-  var attachPattern = /\/attach\/down\/[a-zA-Z0-9]+\/[a-zA-Z0-9]+/g;
+  // PDF 첨부파일 링크 추출
+  // 예: /attach/down/095a2dda9c864e1d90d751f7668a1117/c92b70725392eb00d72a0441fcdfbd30/778bdbf5db9ced7c8fd52756c00bf0cd
+  var attachPattern = /\/attach\/down\/[a-zA-Z0-9]+\/[a-zA-Z0-9]+\/[a-zA-Z0-9]+/g;
   var attachMatches = cleanHtml.match(attachPattern);
+  
   if (!attachMatches) {
     Logger.log("상세 페이지 본문에서 첨부파일 링크를 찾지 못했습니다.");
     return;
   }
   
-  var fileUrl = baseUrl + attachMatches[0];
-  Logger.log("PDF 다운로드 시작: " + fileUrl);
+  // PDF가 포함된 링크 찾기 (혹은 2번째 링크가 보통 PDF)
+  var fileUrl = null;
+  for (var i = 0; i < attachMatches.length; i++) {
+    // HTML 텍스트에서 해당 링크 근처에 .pdf 가 매칭되는지 확인
+    var linkPos = cleanHtml.indexOf(attachMatches[i]);
+    var surroundingText = cleanHtml.substring(linkPos, linkPos + 200).toLowerCase();
+    if (surroundingText.indexOf(".pdf") !== -1) {
+      fileUrl = baseUrl + attachMatches[i];
+      Logger.log("PDF 첨부파일 감지: " + fileUrl);
+      break;
+    }
+  }
+  
+  // 만약 못 찾으면 첫 번째 첨부파일 사용
+  if (!fileUrl) {
+    fileUrl = baseUrl + attachMatches[0];
+    Logger.log("PDF 감지 실패, 첫 번째 첨부파일로 다운로드 시도: " + fileUrl);
+  }
   
   // PDF 다운로드
   var pdfResponse = UrlFetchApp.fetch(fileUrl, {
