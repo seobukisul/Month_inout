@@ -28,17 +28,7 @@ function runMonthlyReport() {
   });
   
   var html = response.getContentText("UTF-8");
-  
-  // 쿠키 수집
-  var cookies = response.getHeaders()["Set-Cookie"] || response.getHeaders()["set-cookie"] || "";
-  var cookieHeader = "";
-  if (cookies) {
-    if (typeof cookies === "string") {
-      cookieHeader = cookies.split(";")[0];
-    } else if (Array.isArray(cookies)) {
-      cookieHeader = cookies.map(function(c) { return c.split(";")[0]; }).join("; ");
-    }
-  }
+  var cookieHeader = getCookieHeader(response);
   
   // HTML 파싱 (Regex 사용)
   var trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
@@ -99,24 +89,23 @@ function runMonthlyReport() {
   var detailHtml = detailResponse.getContentText("UTF-8");
   
   // 상세 페이지 쿠키 추가 수집
-  var detailCookies = detailResponse.getHeaders()["Set-Cookie"] || detailResponse.getHeaders()["set-cookie"] || "";
-  if (detailCookies) {
-    var detailCookieStr = "";
-    if (typeof detailCookies === "string") {
-      detailCookieStr = detailCookies.split(";")[0];
-    } else if (Array.isArray(detailCookies)) {
-      detailCookieStr = detailCookies.map(function(c) { return c.split(";")[0]; }).join("; ");
-    }
-    if (detailCookieStr) {
-      cookieHeader = cookieHeader ? cookieHeader + "; " + detailCookieStr : detailCookieStr;
-    }
+  var detailCookie = getCookieHeader(detailResponse);
+  if (detailCookie) {
+    cookieHeader = cookieHeader ? cookieHeader + "; " + detailCookie : detailCookie;
   }
   
-  // 상세 페이지에서 첨부파일 링크 추출
+  // [중요!] 상세 페이지 하단의 전체 게시글 목록(mytable)을 제거하여 
+  // 현재 게시글의 진짜 첨부파일만 남깁니다.
+  var cleanHtml = detailHtml;
+  cleanHtml = cleanHtml.replace(/<table[^>]*id="mytable"[\s\S]*?<\/table>/gi, "");
+  cleanHtml = cleanHtml.replace(/<div[^>]*class="[^"]*board-list[^"]*"[\s\S]*?<\/div>/gi, "");
+  cleanHtml = cleanHtml.replace(/<div[^>]*class="[^"]*mo_table[^"]*"[\s\S]*?<\/div>/gi, "");
+  
+  // 상세 페이지 본문의 첨부파일 링크 추출
   var attachPattern = /\/attach\/down\/[a-zA-Z0-9]+\/[a-zA-Z0-9]+/g;
-  var attachMatches = detailHtml.match(attachPattern);
+  var attachMatches = cleanHtml.match(attachPattern);
   if (!attachMatches) {
-    Logger.log("상세 페이지에서 첨부파일 링크를 찾지 못했습니다.");
+    Logger.log("상세 페이지 본문에서 첨부파일 링크를 찾지 못했습니다.");
     return;
   }
   
@@ -160,6 +149,28 @@ function runMonthlyReport() {
   
   // 7. 이메일 발송 (GmailApp 사용)
   sendEmail(postTitle, geminiResult.summary, file, chartBlob);
+}
+
+// 대소문자 구분 없이 쿠키 헤더를 안정적으로 수집하는 헬퍼 함수
+function getCookieHeader(response) {
+  var headers = response.getHeaders();
+  var cookies = "";
+  for (var key in headers) {
+    if (key.toLowerCase() === "set-cookie") {
+      cookies = headers[key];
+      break;
+    }
+  }
+  
+  var cookieHeader = "";
+  if (cookies) {
+    if (typeof cookies === "string") {
+      cookieHeader = cookies.split(";")[0];
+    } else if (Array.isArray(cookies)) {
+      cookieHeader = cookies.map(function(c) { return c.split(";")[0]; }).join("; ");
+    }
+  }
+  return cookieHeader;
 }
 
 function extractTextFromPdf(fileId) {
