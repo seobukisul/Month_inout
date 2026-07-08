@@ -13,6 +13,13 @@ from email.mime.image import MIMEImage
 from email.mime.application import MIMEApplication
 from playwright.sync_api import sync_playwright
 
+# 로컬 실행 시 .env 파일에서 환경변수 로드
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # GitHub Actions에서는 dotenv 없이 Secrets 사용
+
 BASE_URL = 'https://www.motie.go.kr'
 
 # 보조자료 PDF 제외 키워드 (그래프, 캡처 등 보조자료는 제외)
