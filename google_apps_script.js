@@ -3,8 +3,7 @@
 
 const GEMINI_API_KEY = "여기에_제미나이_API_키_입력";
 
-// 1. 수신 이메일 주소 설정 (여러 명에게 발송 시 콤마(,)로 구분하여 입력 가능)
-// 예: "receiver1@gmail.com, receiver2@naver.com"
+// 1. 수신 이메일 주소 설정 (여러 명에게 공유 시 콤마(,)로 구분하여 입력 가능)
 const EMAIL_RECEIVER = "seobukisul@gmail.com"; 
 
 const GOOGLE_DRIVE_FOLDER_ID = "https://drive.google.com/drive/folders/1nhPqK4FAUaj9Q42pPTlM5XxdFyjOjurj?usp=drive_link"; // 옵션: 구글 드라이브 특정 폴더 ID (전체 주소 또는 ID 입력 가능)
@@ -278,40 +277,59 @@ function generateChartImage(chartData) {
   
   // 세련된 파스텔톤 컬러 정의 (상승: 코랄 레드, 하락: 소프트 블루)
   var colors = data.map(function(val) {
-    return val >= 0 ? "'rgba(255, 99, 132, 0.85)'" : "'rgba(54, 162, 235, 0.85)'";
+    return "rgba(255, 99, 132, 0.85)";
   });
   var borderColors = data.map(function(val) {
-    return val >= 0 ? "'rgba(255, 99, 132, 1)'" : "'rgba(54, 162, 235, 1)'";
+    return "rgba(255, 99, 132, 1)";
   });
   
-  // Chart.js v3 기반의 세련된 차트 레이아웃 구성
-  var chartConfig = "{" +
-    "type: 'bar'," +
-    "data: {" +
-      "labels: [" + labels.map(function(l) { return "'" + l + "'"; }).join(",") + "]," +
-      "datasets: [{" +
-        "data: [" + data.join(",") + "]," +
-        "backgroundColor: [" + colors.join(",") + "]," +
-        "borderColor: [" + borderColors.join(",") + "]," +
-        "borderWidth: 1.5," +
-        "borderRadius: 8," + // 세련된 둥근 모서리 처리
-        "borderSkipped: false" +
-      "}]" +
-    "}," +
-    "options: {" +
-      "plugins: {" +
-        "title: { display: true, text: '주요 품목별 수출 증감률 (%)', font: { size: 18, weight: 'bold', family: 'sans-serif' }, padding: { top: 15, bottom: 25 } }," +
-        "legend: { display: false }" +
-      "}," +
-      "scales: {" +
-        "x: { grid: { display: false }, ticks: { font: { size: 11, weight: 'bold' } } }," +
-        "y: { grid: { color: 'rgba(200, 200, 200, 0.15)' }, ticks: { font: { size: 11 } } }" +
-      "}" +
-    "}" +
-  "}";
+  // Chart.js v3 기반 객체 선언
+  var chartObject = {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: colors,
+        borderColor: borderColors,
+        borderWidth: 1.5,
+        borderRadius: 8, // 세련된 둥근 모서리 처리
+        borderSkipped: false
+      }]
+    },
+    options: {
+      plugins: {
+        title: { 
+          display: true, 
+          text: '주요 품목별 수출 증감률 (%)', 
+          font: { size: 18, weight: 'bold', family: 'sans-serif' }, 
+          padding: { top: 15, bottom: 25 } 
+        },
+        legend: { display: false }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11, weight: 'bold' } } },
+        y: { grid: { color: 'rgba(200, 200, 200, 0.15)' }, ticks: { font: { size: 11 } } }
+      }
+    }
+  };
   
-  var url = "https://quickchart.io/chart?c=" + encodeURIComponent(chartConfig) + "&w=800&h=450&version=3"; // Chart.js v3 엔진 활성화
-  var response = UrlFetchApp.fetch(url);
+  // Google Apps Script의 URL 길이 초과 에러(URLFetch URL Length) 우회를 위해 POST 방식 호출로 변경
+  var url = "https://quickchart.io/chart";
+  var payload = {
+    chart: JSON.stringify(chartObject),
+    width: 800,
+    height: 450,
+    version: "3"
+  };
+  
+  var response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  
   return response.getBlob();
 }
 
