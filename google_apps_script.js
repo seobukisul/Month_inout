@@ -184,11 +184,12 @@ function runMonthlyReport() {
   // 5. Gemini API 호출
   var geminiResult = callGemini(text);
   
-  // 6. QuickChart API를 통해 그래프 이미지 생성
-  var chartBlob = generateChartImage(geminiResult.data);
+  // 6. QuickChart API를 통해 그래프 이미지 2종 생성 (수출 증감률 막대그래프 + 추천 포트폴리오 도넛차트)
+  var barChartBlob = generateBarChartImage(geminiResult.data);
+  var pieChartBlob = generatePieChartImage(geminiResult.portfolio);
   
   // 7. 이메일 발송 (GmailApp 사용)
-  sendEmail(postTitle, geminiResult.summary, file, chartBlob);
+  sendEmail(postTitle, geminiResult.summary, file, barChartBlob, pieChartBlob);
 }
 
 // 대소문자 구분 없이 쿠키 헤더를 안정적으로 수집하는 헬퍼 함수
@@ -226,26 +227,30 @@ function extractTextFromPdf(fileId) {
 function callGemini(text) {
   var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY;
   
-  // 주식 애널리스트 관점에서 투자에 핵심이 되는 보고서를 작성하도록 프롬프트를 전면 수정
-  var prompt = "당신은 여의도 최고의 기관 투자자 전담 '수석 주식 애널리스트(Equity Research Director)'입니다.\n" +
-               "제공된 대한민국 산업통상자원부 수출입 동향 보고서(텍스트)를 바탕으로 실제 투자 의사결정에 직결되는 '투자 관점의 핵심 산업 분석 보고서'를 작성해 주세요.\n\n" +
-               "다음 요구사항을 반드시 충족해야 합니다:\n" +
-               "1. **투자자 관점의 심층 요약 (HTML 형식)**:\n" +
-               "   - **[투자 종합 코멘트]**: 전체적인 매크로 및 전월비 추세 비교 (수출 회복 강도, 무역수지 흐름 분석)\n" +
-               "   - **[📈 모멘텀 개선 산업 (Improving Sectors)]**:\n" +
-               "     * 전월 및 전년 대비 확실히 개선되거나 탄탄한 성장세를 유지하는 산업(최소 2~3개)을 추출.\n" +
-               "     * 구체적인 수치(수출액, YoY 증감률)와 구체적인 성장 배경(단가 상승, 수요 회복 등)을 제시.\n" +
-               "     * 각 산업마다 관련 국내 핵심 상장 기업(KOSPI/KOSDAQ) **탑 5 기업**을 반드시 명시할 것. (예: 반도체 -> 삼성전자, SK하이닉스, 한미반도체, 리노공업, HPSP)\n" +
-               "   - **[📉 모멘텀 둔화 산업 (Deteriorating Sectors)]**:\n" +
-               "     * 성장세가 꺾였거나 부진이 지속되고 있는 산업(최소 2개)을 추출.\n" +
-               "     * 구체적인 수치와 부진 배경(단가 하락, 공급 과잉, 전방 수요 둔화 등) 제시.\n" +
-               "     * 각 산업마다 리스크 관리가 필요한 관련 대표 기업 **탑 5 기업**을 반드시 명시할 것.\n" +
-               "   - **[💡 결론 및 투자 전략]**: 이번 달 보고서 기준 포트폴리오 비중 전략 및 핵심 시사점.\n" +
-               "   - **가독성 규격**: 각 대항목은 <strong>[항목명]</strong> 형태로 구분하고, 각 항목과 산업별 설명 사이에는 반드시 <br><br>을 넣어 가독성을 최대로 높여주세요.\n" +
-               "2. **차트 시각화용 데이터**:\n" +
-               "   - 메일 하단 차트 출력을 위해 주요 품목별 수출 증감률(%) 데이터를 소수점 첫째자리까지 추출해줘.\n\n" +
-               "반환 형식은 반드시 아래 JSON 구조와 정확히 일치해야 해 (JSON 마크다운 기호 없이 순수 JSON만 반환):\n" +
-               "{\"summary\": \"HTML형식의_상세_투자_분석_보고서\", \"data\": {\"반도체\": 15.2, \"자동차\": -3.1, \"철강\": 2.5}}\n\n" +
+  // 기관급 투자 레포트 구성을 위해 세분화된 요구사항 정의
+  var prompt = "당신은 글로벌 최상위 투자은행(IB)의 '수석 주식 애널리스트 및 포트폴리오 전략가(Chief Equity Strategist)'입니다.\n" +
+               "산업통상자원부 수출입 동향 텍스트 데이터를 분석하여 실제 자산 운용사 펀드매니저들이 의사결정에 참고할 수준의 '월간 산업 투자 포트폴리오 리포트'를 작성해 주세요.\n\n" +
+               "보고서는 반드시 아래 8가지 뼈대를 기반으로 풍부하고 디테일하게 한글 HTML 형식으로 작성해 주어야 합니다:\n\n" +
+               "1. **Executive Summary (투자 신호 요약)**\n" +
+               "   - 산업별 매력도를 [★★★★★ 매우 긍정], [★★★★ 긍정], [★★★ 중립], [★★ 부정], [★ 매우 부정] 등급으로 분류하고 매력도별 해당 품목을 명시.\n" +
+               "2. **산업별 Momentum 추세 분석 표 (HTML Table)**\n" +
+               "   - 주요 품목들(반도체, 자동차, 바이오헬스, 디스플레이, 디스플레이, 철강 등)의 이번 달 수출액, YoY 증감률, 추세 판단(예: 강한 상승, 회복세, 약세 지속 등)을 깔끔한 테두리가 있는 표(HTML Table)로 구현.\n" +
+               "3. **핵심 산업별 투자 포인트 & 모멘텀 심층 분석**\n" +
+               "   - 긍정/매우 긍정 산업의 성장 동력(단가 추이, 해외 가동률 등 구체적 지표 활용), 부정/매우 부정 산업의 부진 배경(공급 과잉, 단가 하락 등)을 조밀하게 분석.\n" +
+               "4. **산업별 대표 기업 탑 5 주식 종목 명시**\n" +
+               "   - 분석한 각 주요 산업마다 해당 업종의 수혜를 입는 국내 핵심 상장 주식(KOSPI/KOSDAQ) **탑 5 기업**을 반드시 매칭해 나열. (예: 반도체 -> 삼성전자, SK하이닉스, 한미반도체, 리노공업, HPSP 등)\n" +
+               "5. **실제 포트폴리오 추천 비중 (HTML Table)**\n" +
+               "   - 이번 지표를 반영한 추천 투자 포트폴리오 자산 배분 비중(%) 테이블 구현. (예: 반도체 35%, 바이오 15%, 현금 10% 등)\n" +
+               "6. **글로벌 리스크 요인**\n" +
+               "   - 관세 정책, 대외 전쟁, 공급망 차질 등 주의 깊게 관찰해야 할 주요 대외 변수 기술.\n\n" +
+               "**가독성 디자인 가이드라인**:\n" +
+               "   - 각 1~6 항목의 큰 제목은 <strong>[항목명]</strong> 형태로 강조하고, 항목 사이 및 설명 문단 사이에는 반드시 문단 구분용 줄바꿈(<br><br>)을 넣어 시각적인 여백을 확보해 주세요.\n" +
+               "   - 깔끔한 불릿포인트(•)와 적절한 텍스트 하이라이트를 주어 가독성을 최대로 높여주세요.\n\n" +
+               "**시각화 데이터 수집**:\n" +
+               "   - `data`: 주요 5~6개 핵심 품목의 수출 증가율(%) 데이터를 추출 (막대그래프용)\n" +
+               "   - `portfolio`: 위에서 제안한 추천 포트폴리오 비중(%) 데이터를 추출 (원형 차트용)\n\n" +
+               "반환 형식은 반드시 아래 JSON 구조와 정확히 일치해야 합니다 (코드 블럭 기호 없이 순수 JSON만 반환):\n" +
+               "{\"summary\": \"HTML형식의_상세_기관급_투자_보고서_내용\", \"data\": {\"반도체\": 15.2, \"자동차\": -3.1, \"철강\": 2.5}, \"portfolio\": {\"반도체\": 35, \"바이오\": 15, \"화장품\": 10, \"선박\": 10, \"가전\": 5, \"현금\": 25}}\n\n" +
                "텍스트:\n" + text;
                
   var payload = {
@@ -267,33 +272,32 @@ function callGemini(text) {
   };
   
   var response = UrlFetchApp.fetch(url, options);
-  var json = JSON.parse(response.getContentText());
+  var jsonText = response.getContentText();
   
-  // 제미나이 응답 에러 핸들링
+  // 마크다운 JSON 감쌈 코드 블럭이 있을 경우 클리닝 처리
+  jsonText = jsonText.replace(/^```json/i, "").replace(/```$/, "").trim();
+  
+  var json = JSON.parse(jsonText);
+  
+  // 에러 핸들링
   if (json.error) {
     throw new Error("Gemini API Error: " + json.error.message + " (Code: " + json.error.code + ")");
   }
-  if (!json.candidates || json.candidates.length === 0) {
-    throw new Error("Gemini API returned no candidates. Raw response: " + response.getContentText());
-  }
   
-  var resultText = json.candidates[0].content.parts[0].text;
-  return JSON.parse(resultText);
+  return json;
 }
 
-function generateChartImage(chartData) {
+function generateBarChartImage(chartData) {
   var labels = Object.keys(chartData);
   var data = Object.values(chartData);
   
-  // 세련된 파스텔톤 컬러 정의 (상승: 코랄 레드, 하락: 소프트 블루)
   var colors = data.map(function(val) {
-    return "rgba(255, 99, 132, 0.85)";
+    return val >= 0 ? "rgba(255, 99, 132, 0.85)" : "rgba(54, 162, 235, 0.85)";
   });
   var borderColors = data.map(function(val) {
-    return "rgba(255, 99, 132, 1)";
+    return val >= 0 ? "rgba(255, 99, 132, 1)" : "rgba(54, 162, 235, 1)";
   });
   
-  // Chart.js v3 기반 객체 선언
   var chartObject = {
     type: 'bar',
     data: {
@@ -303,7 +307,7 @@ function generateChartImage(chartData) {
         backgroundColor: colors,
         borderColor: borderColors,
         borderWidth: 1.5,
-        borderRadius: 8, // 세련된 둥근 모서리 처리
+        borderRadius: 8,
         borderSkipped: false
       }]
     },
@@ -324,7 +328,6 @@ function generateChartImage(chartData) {
     }
   };
   
-  // Google Apps Script의 URL 길이 초과 에러(URLFetch URL Length) 우회를 위해 POST 방식 호출로 변경
   var url = "https://quickchart.io/chart";
   var payload = {
     chart: JSON.stringify(chartObject),
@@ -343,32 +346,94 @@ function generateChartImage(chartData) {
   return response.getBlob();
 }
 
-function sendEmail(subject, summaryHtml, pdfFile, chartBlob) {
+function generatePieChartImage(portfolioData) {
+  var labels = Object.keys(portfolioData);
+  var data = Object.values(portfolioData);
+  
+  // 고급스러운 포트폴리오 추천 도넛 차트 컬러 구성
+  var colors = [
+    "rgba(75, 192, 192, 0.85)",   // Teal
+    "rgba(153, 102, 255, 0.85)",  // Purple
+    "rgba(255, 159, 64, 0.85)",   // Orange
+    "rgba(255, 205, 86, 0.85)",   // Yellow
+    "rgba(201, 203, 207, 0.85)",  // Grey
+    "rgba(54, 162, 235, 0.85)"    // Blue
+  ];
+  
+  var chartObject = {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: colors.slice(0, labels.length),
+        borderWidth: 2,
+        borderColor: "#ffffff"
+      }]
+    },
+    options: {
+      plugins: {
+        title: { 
+          display: true, 
+          text: '추천 자산배분 포트폴리오 비중 (%)', 
+          font: { size: 18, weight: 'bold', family: 'sans-serif' }, 
+          padding: { top: 15, bottom: 25 } 
+        },
+        legend: {
+          position: 'right',
+          labels: {
+            font: { size: 12, weight: 'bold' }
+          }
+        }
+      }
+    }
+  };
+  
+  var url = "https://quickchart.io/chart";
+  var payload = {
+    chart: JSON.stringify(chartObject),
+    width: 800,
+    height: 450,
+    version: "3"
+  };
+  
+  var response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  
+  return response.getBlob();
+}
+
+function sendEmail(subject, summaryHtml, pdfFile, barChartBlob, pieChartBlob) {
   var inlineImages = {};
   
-  // 프리미엄 트렌디 HTML 이메일 레이아웃 설계 (인터/맑은고딕 폰트 적용, 카드 레이아웃, 부드러운 그림자 효과)
+  // 프리미엄 트렌디 HTML 이메일 레이아웃 설계 (카드 형태, 연여백 확보, 차트 2종 좌우/상하 배치)
   var emailBodyHtml = 
-    "<div style=\"font-family: 'Inter', 'Malgun Gothic', sans-serif; max-width: 650px; margin: 0 auto; padding: 25px; background-color: #f8f9fa; border-radius: 16px; border: 1px solid #e9ecef;\">" +
+    "<div style=\"font-family: 'Inter', 'Malgun Gothic', sans-serif; max-width: 700px; margin: 0 auto; padding: 25px; background-color: #f8f9fa; border-radius: 16px; border: 1px solid #e9ecef;\">" +
       "<div style=\"text-align: center; margin-bottom: 25px;\">" +
-        "<span style=\"background-color: #e8f4fd; color: #1a73e8; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 50px; text-transform: uppercase; letter-spacing: 1px;\">Monthly Report</span>" +
-        "<h2 style=\"color: #1e293b; font-size: 22px; margin-top: 10px; margin-bottom: 5px; font-weight: 800; letter-spacing: -0.5px;\">" + subject + "</h2>" +
-        "<p style=\"color: #64748b; font-size: 13px; margin: 0;\">산업통상자원부 공식 발표 기준 수출입 동향 분석</p>" +
+        "<span style=\"background-color: #e2f0fd; color: #1a73e8; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 50px; text-transform: uppercase; letter-spacing: 1.5px;\">Institutional Investment Briefing</span>" +
+        "<h2 style=\"color: #0f172a; font-size: 24px; margin-top: 10px; margin-bottom: 5px; font-weight: 900; letter-spacing: -0.5px;\">" + subject + "</h2>" +
+        "<p style=\"color: #64748b; font-size: 13px; margin: 0;\">산업통상자원부 지표 연계 기관 분석 및 주식 매칭 리포트</p>" +
       "</div>" +
       
-      "<div style=\"background-color: #ffffff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02); border: 1px solid #f1f5f9; margin-bottom: 25px;\">" +
-        "<h3 style=\"color: #0f172a; font-size: 15px; margin-top: 0; margin-bottom: 20px; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; font-weight: 700;\">📊 주요 산업별 수출입 동향 요약</h3>" +
-        "<div style=\"color: #334155; font-size: 14px; line-height: 1.8; letter-spacing: -0.3px;\">" +
+      "<div style=\"background-color: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02); border: 1px solid #f1f5f9; margin-bottom: 25px;\">" +
+        "<div style=\"color: #334155; font-size: 14px; line-height: 1.85; letter-spacing: -0.3px;\">" +
           summaryHtml + 
         "</div>" +
       "</div>";
       
-  if (chartBlob) {
+  if (barChartBlob && pieChartBlob) {
     emailBodyHtml += 
       "<div style=\"background-color: #ffffff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02); border: 1px solid #f1f5f9; text-align: center; margin-bottom: 25px;\">" +
-        "<h3 style=\"color: #0f172a; font-size: 15px; margin-top: 0; margin-bottom: 15px; border-bottom: 2px solid #10b981; padding-bottom: 8px; font-weight: 700; text-align: left;\">📈 주요 품목별 수출 증감률 시각화</h3>" +
-        "<img src=\"cid:chartImage\" width=\"100%\" style=\"border-radius: 8px; max-width: 600px;\" />" +
+        "<h3 style=\"color: #0f172a; font-size: 15px; margin-top: 0; margin-bottom: 20px; border-bottom: 2px solid #10b981; padding-bottom: 8px; font-weight: 700; text-align: left;\">📈 주요 지표 시각화 (수출입 성장성 및 포트폴리오 배분)</h3>" +
+        "<img src=\"cid:barChart\" width=\"100%\" style=\"border-radius: 8px; max-width: 600px; margin-bottom: 25px;\" /><br>" +
+        "<img src=\"cid:pieChart\" width=\"100%\" style=\"border-radius: 8px; max-width: 600px;\" />" +
       "</div>";
-    inlineImages["chartImage"] = chartBlob;
+    inlineImages["barChart"] = barChartBlob;
+    inlineImages["pieChart"] = pieChartBlob;
   }
   
   emailBodyHtml += 
@@ -380,7 +445,7 @@ function sendEmail(subject, summaryHtml, pdfFile, chartBlob) {
   
   MailApp.sendEmail({
     to: EMAIL_RECEIVER,
-    subject: "[수출입 동향] " + subject,
+    subject: "[기관급 투자 보고서] " + subject,
     htmlBody: emailBodyHtml,
     inlineImages: inlineImages,
     attachments: [pdfFile.getAs(MimeType.PDF)]
