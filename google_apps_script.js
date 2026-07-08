@@ -16,7 +16,7 @@ function runMonthlyReport() {
   
   Logger.log("대상: " + targetYear + "년 " + targetMonth + "월 수출입 동향");
   
-  // 1. 게시판 검색 (motir.go.kr 이 공식 도메인으로 리다이렉트되므로 motir 사용)
+  // 1. 게시판 검색
   var baseUrl = "https://www.motir.go.kr";
   var searchUrl = baseUrl + "/kor/article/ATCL3f49a5a8c?searchCondition=1&searchKeyword=" + encodeURIComponent("수출입 동향");
   
@@ -29,6 +29,7 @@ function runMonthlyReport() {
   
   var html = response.getContentText("UTF-8");
   var cookieHeader = getCookieHeader(response);
+  Logger.log("검색 페이지 획득 쿠키: " + (cookieHeader ? cookieHeader : "없음"));
   
   // HTML 파싱 (Regex 사용)
   var trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
@@ -80,7 +81,7 @@ function runMonthlyReport() {
   var detailResponse = UrlFetchApp.fetch(detailUrl, {
     muteHttpExceptions: true,
     headers: {
-      "User-Agent": "Mozilla/5.0",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       "Cookie": cookieHeader,
       "Referer": searchUrl
     }
@@ -93,12 +94,12 @@ function runMonthlyReport() {
   if (detailCookie) {
     cookieHeader = cookieHeader ? cookieHeader + "; " + detailCookie : detailCookie;
   }
+  Logger.log("상세 페이지 결합 쿠키: " + (cookieHeader ? cookieHeader : "없음"));
   
   // 하단 기사목록 테이블(mytable)을 제거하여 본문 첨부파일만 남김
   var cleanHtml = detailHtml.replace(/<table[^>]*id="mytable"[\s\S]*?<\/table>/gi, "");
   
   // PDF 첨부파일 링크 추출
-  // 예: /attach/down/095a2dda9c864e1d90d751f7668a1117/c92b70725392eb00d72a0441fcdfbd30/778bdbf5db9ced7c8fd52756c00bf0cd
   var attachPattern = /\/attach\/down\/[a-zA-Z0-9]+\/[a-zA-Z0-9]+\/[a-zA-Z0-9]+/g;
   var attachMatches = cleanHtml.match(attachPattern);
   
@@ -107,12 +108,11 @@ function runMonthlyReport() {
     return;
   }
   
-  // PDF가 포함된 링크 찾기 (혹은 2번째 링크가 보통 PDF)
+  // PDF가 포함된 링크 찾기
   var fileUrl = null;
   for (var i = 0; i < attachMatches.length; i++) {
-    // HTML 텍스트에서 해당 링크 근처에 .pdf 가 매칭되는지 확인
     var linkPos = cleanHtml.indexOf(attachMatches[i]);
-    var surroundingText = cleanHtml.substring(linkPos, linkPos + 200).toLowerCase();
+    var surroundingText = cleanHtml.substring(linkPos, linkPos + 250).toLowerCase();
     if (surroundingText.indexOf(".pdf") !== -1) {
       fileUrl = baseUrl + attachMatches[i];
       Logger.log("PDF 첨부파일 감지: " + fileUrl);
@@ -126,11 +126,13 @@ function runMonthlyReport() {
     Logger.log("PDF 감지 실패, 첫 번째 첨부파일로 다운로드 시도: " + fileUrl);
   }
   
-  // PDF 다운로드
+  // PDF 다운로드 (브라우저와 동일한 헤더 사용)
   var pdfResponse = UrlFetchApp.fetch(fileUrl, {
     muteHttpExceptions: true,
     headers: {
-      "User-Agent": "Mozilla/5.0",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
       "Cookie": cookieHeader,
       "Referer": detailUrl
     }
@@ -167,7 +169,7 @@ function runMonthlyReport() {
 
 // 대소문자 구분 없이 쿠키 헤더를 안정적으로 수집하는 헬퍼 함수
 function getCookieHeader(response) {
-  var headers = response.getHeaders();
+  var headers = response.getAllHeaders(); // getAllHeaders로 변경하여 쿠키 유실 방지
   var cookies = "";
   for (var key in headers) {
     if (key.toLowerCase() === "set-cookie") {
