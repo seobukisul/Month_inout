@@ -33,8 +33,6 @@ HEADERS = {
     'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
 }
-# 보조자료 PDF 제외 키워드
-EXCLUDE_KEYWORDS = ['그래프', '캡처', '참고', '별첨', '붙임', '보도참고']
 
 
 def get_latest_report():
@@ -52,15 +50,7 @@ def get_latest_report():
     session.headers.update(HEADERS)
     session.verify = False
 
-    # Step 1: 메인 게시판 방문 (세션 쿠키 획득)
-    try:
-        session.get(f"{BASE_URL}/kor/article/ATCL3f49a5a8c", timeout=20)
-        print("[2] 게시판 접속 성공")
-    except Exception as e:
-        print(f"[!] 게시판 접속 실패: {e}")
-        return find_cached_pdf(target_year, target_month)
-
-    # Step 2: 검색 결과에서 게시물 ID 추출
+    # 검색 결과 페이지: 제목과 첨부파일이 같은 tr에 존재
     search_url = (
         f"{BASE_URL}/kor/article/ATCL3f49a5a8c"
         f"?searchCondition=1&searchKeyword=%EC%88%98%EC%B6%9C%EC%9E%85+%EB%8F%99%ED%96%A5"
@@ -68,50 +58,44 @@ def get_latest_report():
     try:
         resp = session.get(search_url, timeout=20)
         soup = BeautifulSoup(resp.text, 'html.parser')
+        print("[2] 검색 페이지 접속 성공")
     except Exception as e:
         print(f"[!] 검색 페이지 접속 실패: {e}")
         return find_cached_pdf(target_year, target_month)
 
-    article_id = None
+    # 각 행에서 제목 확인 후 같은 행의 첨부파일 링크 추출
+    rows = soup.select('table#mytable tbody tr')
+    target_row = None
     post_title = None
 
-    for a in soup.find_all('a', href=re.compile(r"article\.view\(")):
-        title = a.text.strip()
-        href = a.get('href', '')
+    for row in rows:
+        title_link = row.find('a', href=re.compile(r'article\.view'))
+        if not title_link:
+            continue
+        title = title_link.text.strip()
         if (f"{target_year}년" in title and
                 f"{target_month}월" in title and
                 "수출입" in title and "동향" in title and
                 "정보통신" not in title):
-            match = re.search(r"article\.view\('(\d+)'\)", href)
-            if match:
-                article_id = match.group(1)
-                post_title = title
-                print(f"[3] 게시물 발견: {post_title} (ID: {article_id})")
-                break
+            target_row = row
+            post_title = title
+            print(f"[3] 게시물 발견: {post_title}")
+            break
 
-    if not article_id:
-        print("[!] 게시물을 찾지 못했습니다. 캐시된 PDF를 사용합니다.")
+    if not target_row:
+        print("[!] 게시물 없음. 캐시된 PDF 사용합니다.")
         return find_cached_pdf(target_year, target_month)
 
-    # Step 3: 상세 페이지 방문 후 첨부파일 URL 수집
-    detail_url = f"{BASE_URL}/kor/article/ATCL3f49a5a8c?articleSeq={article_id}"
-    session.headers.update({'Referer': search_url})
-    try:
-        r2 = session.get(detail_url, timeout=20)
-        soup2 = BeautifulSoup(r2.text, 'html.parser')
-    except Exception as e:
-        print(f"[!] 상세 페이지 접속 실패: {e}")
-        return find_cached_pdf(target_year, target_month)
-
-    attach_links = soup2.find_all('a', href=re.compile(r'/attach/down/'))
+    # 같은 행에서 첨부파일 링크 추출
+    attach_links = target_row.find_all('a', href=re.compile(r'/attach/down/'))
     print(f"[4] 첨부파일 {len(attach_links)}개 발견")
 
     if not attach_links:
-        print("[!] 첨부파일 없음. 캐시된 PDF를 사용합니다.")
+        print("[!] 첨부파일 없음. 캐시된 PDF 사용합니다.")
         return find_cached_pdf(target_year, target_month)
 
-    # Step 4: 첨부파일 다운로드 시도 (Referer 헤더 포함)
-    session.headers.update({'Referer': detail_url})
+    # 첨부파일 다운로드 시도
+    session.headers.update({'Referer': search_url})
     pdf_candidates = []
 
     for i, link in enumerate(attach_links):
@@ -119,39 +103,30 @@ def get_latest_report():
         try:
             r3 = session.get(file_url, timeout=30)
             cd = r3.headers.get('Content-Disposition', '')
-            ct = r3.headers.get('Content-Type', '')
             fname_match = re.search(r"filename\*?=['\"]?(?:UTF-8'')?([^'\";\n]+)", cd)
             filename = unquote(fname_match.group(1).strip()) if fname_match else f"attach_{i+1}.bin"
             is_pdf = r3.content[:4] == b'%PDF'
             size = len(r3.content)
             print(f"  [{i+1}] {filename} | PDF={is_pdf} | Size={size:,}bytes")
 
-            if is_pdf and size > 10000:  # 10KB 이상인 진짜 PDF만
+            if is_pdf and size > 10000:
                 pdf_candidates.append((filename, r3.content, size))
         except Exception as e:
             print(f"  [{i+1}] 다운로드 실패: {e}")
 
     if not pdf_candidates:
-        print("[!] PDF 다운로드 실패. 캐시된 PDF를 사용합니다.")
+        print("[!] PDF 다운로드 실패. 캐시된 PDF 사용합니다.")
         return find_cached_pdf(target_year, target_month)
 
-    # 메인 보고서 PDF 선택: 제외 키워드 없고 가장 큰 파일
+    # 가장 큰 PDF 선택
     pdf_candidates.sort(key=lambda x: x[2], reverse=True)
-    for filename, content, size in pdf_candidates:
-        has_exclude = any(kw in filename for kw in EXCLUDE_KEYWORDS)
-        if not has_exclude:
-            save_path = f"file/{filename}"
-            with open(save_path, 'wb') as f:
-                f.write(content)
-            print(f"[5] PDF 저장 완료: {save_path} ({size:,} bytes)")
-            return save_path, post_title
-
-    # 조건 맞는 게 없으면 가장 큰 PDF 사용
     filename, content, size = pdf_candidates[0]
+    if not filename.lower().endswith('.pdf'):
+        filename += '.pdf'
     save_path = f"file/{filename}"
     with open(save_path, 'wb') as f:
         f.write(content)
-    print(f"[5] PDF 저장 완료 (대체): {save_path} ({size:,} bytes)")
+    print(f"[5] PDF 저장 완료: {save_path} ({size:,} bytes)")
     return save_path, post_title
 
 
@@ -163,7 +138,6 @@ def find_cached_pdf(target_year, target_month):
     pdfs = [f for f in os.listdir("file") if f.lower().endswith('.pdf')]
     if not pdfs:
         return None, None
-    # 가장 최근 수정된 PDF 선택
     pdfs.sort(key=lambda f: os.path.getmtime(f"file/{f}"), reverse=True)
     path = f"file/{pdfs[0]}"
     title = f"{target_year}년 {target_month}월 수출입 동향 (캐시)"
@@ -199,7 +173,7 @@ def analyze_pdf(pdf_path):
     """
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-1.5-flash",
         contents=prompt,
         config={"response_mime_type": "application/json"}
     )
@@ -240,7 +214,7 @@ def send_email(subject, summary, pdf_file=None):
     receiver = os.environ.get("EMAIL_RECEIVER")
 
     if not all([sender, password, receiver]):
-        print("[!] 이메일 환경변수 미설정")
+        print("[!] 이메일 환경변수 미설정 (EMAIL_SENDER / EMAIL_PASSWORD / EMAIL_RECEIVER)")
         return
 
     print(f"[9] 이메일 발송 중 → {receiver}")
