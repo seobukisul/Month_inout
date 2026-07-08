@@ -41,7 +41,8 @@ def get_latest_report():
             f"{BASE_URL}/kor/article/ATCL3f49a5a8c"
             f"?searchCondition=1&searchKeyword=%EC%88%98%EC%B6%9C%EC%9E%85+%EB%8F%99%ED%96%A5"
         )
-        page.goto(search_url, wait_until="networkidle", timeout=30000)
+        page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(2000)  # 동적 콘텐츠 렌더링 대기
         print("[2] 게시판 로딩 완료")
 
         # 게시물 제목 링크 수집
@@ -76,7 +77,8 @@ def get_latest_report():
 
         article_id = match.group(1)
         detail_url = f"{BASE_URL}/kor/article/ATCL3f49a5a8c?articleSeq={article_id}"
-        page.goto(detail_url, wait_until="networkidle", timeout=30000)
+        page.goto(detail_url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(2000)  # 동적 콘텐츠 렌더링 대기
         print(f"[4] 게시물 상세 페이지 로딩 완료 (ID: {article_id})")
 
         # 첨부파일 링크 목록 수집
