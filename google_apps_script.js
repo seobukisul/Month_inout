@@ -81,7 +81,7 @@ function runMonthlyReport() {
   var detailResponse = UrlFetchApp.fetch(detailUrl, {
     muteHttpExceptions: true,
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "User-Agent": "Mozilla/5.0",
       "Cookie": cookieHeader,
       "Referer": searchUrl
     }
@@ -148,8 +148,19 @@ function runMonthlyReport() {
     return;
   }
   
-  // 3. 구글 드라이브에 PDF 저장
-  var folder = GOOGLE_DRIVE_FOLDER_ID ? DriveApp.getFolderById(GOOGLE_DRIVE_FOLDER_ID) : DriveApp.getRootFolder();
+  // 3. 구글 드라이브에 PDF 저장 (안전한 폴더 조회 로직 적용)
+  var folder;
+  if (GOOGLE_DRIVE_FOLDER_ID && GOOGLE_DRIVE_FOLDER_ID.trim() !== "" && GOOGLE_DRIVE_FOLDER_ID.indexOf("폴더") === -1) {
+    try {
+      folder = DriveApp.getFolderById(GOOGLE_DRIVE_FOLDER_ID);
+    } catch (e) {
+      Logger.log("폴더 ID 조회 실패, 내 드라이브 루트에 저장합니다: " + e.toString());
+      folder = DriveApp.getRootFolder();
+    }
+  } else {
+    folder = DriveApp.getRootFolder();
+  }
+  
   var filename = postTitle + ".pdf";
   var file = folder.createFile(pdfBlob.setName(filename));
   Logger.log("구글 드라이브 저장 완료: " + file.getUrl());
