@@ -3,7 +3,7 @@
 
 const GEMINI_API_KEY = "여기에_제미나이_API_키_입력";
 const EMAIL_RECEIVER = "받을_이메일_주소@gmail.com";
-const GOOGLE_DRIVE_FOLDER_ID = ""; // 옵션: 구글 드라이브 특정 폴더 ID (비워두면 내 드라이브 루트에 저장)
+const GOOGLE_DRIVE_FOLDER_ID = ""; // 옵션: 구글 드라이브 특정 폴더 ID (전체 주소 또는 ID 입력 가능)
 
 function runMonthlyReport() {
   var now = new Date();
@@ -148,13 +148,23 @@ function runMonthlyReport() {
     return;
   }
   
-  // 3. 구글 드라이브에 PDF 저장 (안전한 폴더 조회 로직 적용)
+  // 3. 구글 드라이브에 PDF 저장
+  var folderId = GOOGLE_DRIVE_FOLDER_ID.trim();
+  
+  // 사용자가 폴더 전체 URL을 입력했을 경우 ID만 추출하는 지능형 파싱 적용
+  if (folderId.indexOf("drive.google.com") !== -1) {
+    var idMatch = folderId.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+    if (idMatch) {
+      folderId = idMatch[1];
+    }
+  }
+  
   var folder;
-  if (GOOGLE_DRIVE_FOLDER_ID && GOOGLE_DRIVE_FOLDER_ID.trim() !== "" && GOOGLE_DRIVE_FOLDER_ID.indexOf("폴더") === -1) {
+  if (folderId !== "" && folderId.indexOf("폴더") === -1) {
     try {
-      folder = DriveApp.getFolderById(GOOGLE_DRIVE_FOLDER_ID);
+      folder = DriveApp.getFolderById(folderId);
     } catch (e) {
-      Logger.log("폴더 ID 조회 실패, 내 드라이브 루트에 저장합니다: " + e.toString());
+      Logger.log("폴더 ID (" + folderId + ") 조회 실패, 내 드라이브 루트에 저장합니다: " + e.toString());
       folder = DriveApp.getRootFolder();
     }
   } else {
